@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
-
+import re
+import json
 import os
 from langchain.agents import AgentExecutor, create_tool_calling_agent, tool
 from langchain_core.prompts import ChatPromptTemplate
@@ -23,7 +24,7 @@ CORS(app, resources={r"/analyze": {"origins": "https://www.amazon.in"}})
 os.environ['GOOGLE_API_KEY'] = "AIzaSyBfsbwVP6RJ25Mnduh0S-UD2WwoMNwqkLc"
 
 # Initialize GoogleGenerativeAI with appropriate safety settings
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-exp-0827")
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-exp-0827")
 
 # Initialize OpenFoodFacts API
 api = openfoodfacts.API(user_agent="MyAwesomeApp/1.0")
@@ -91,6 +92,10 @@ YOU ARE A WORLD-CLASS FOOD ANALYST, RECOGNIZED AS A LEADING EXPERT IN NUTRITIONA
    3.1. **EXPLAIN** why the food was classified into the chosen health range.
    3.2. **MENTION** specific nutrients or ingredients that were pivotal in the decision.
 
+4. **OUTPUT FORMAT**: Provide your answer in JSON format only. The output should contain the following keys:
+   - `classification`: The health range color (`GREEN`, `YELLOW`, or `RED`).
+   - `explanation`: A clear and concise explanation of why the food falls into the given category based on the data from `find_products`.
+
 ###CHAIN OF THOUGHTS###
 
 1. **Data Extraction:**
@@ -109,17 +114,24 @@ YOU ARE A WORLD-CLASS FOOD ANALYST, RECOGNIZED AS A LEADING EXPERT IN NUTRITIONA
    4.1. BASE your classification (GREEN, YELLOW, RED) on the analysis of nutrients and ingredients.
    4.2. PROVIDE a detailed justification for the classification.
 
-5. **Final Output:**
+5. **Final Output**:
    5.1. SUMMARIZE the food's overall healthiness.
-   5.2. STATE the final classification clearly (GREEN, YELLOW, or RED).
+   5.2. STATE the final classification clearly (GREEN, YELLOW, or RED) in the JSON format.
+   *****json format must contain this in this way only 
+ "product_name"
+  "classification_status"
+  "reasoning"
+  "conclusion"
+  "disclaimer"*****
+##WHAT NOT TO DO###
 
-###WHAT NOT TO DO###
-
-- **DO NOT** USE PERSONAL OR EXTERNAL KNOWLEDGE BEYOND THE DATA FROM THE `find_products` FUNCTION.
-- **DO NOT** CLASSIFY FOOD WITHOUT PROPER ANALYSIS OF PROVIDED DATA.
-- **DO NOT** ASSUME MISSING DATA; ONLY BASE DECISIONS ON WHAT IS PRESENT.
-- **DO NOT** USE VAGUE OR UNSUPPORTED STATEMENTS IN YOUR EXPLANATION.
-- **DO NOT** IGNORE ANY PART OF THE NUTRITIONAL DATA OR INGREDIENTS LIST PROVIDED.
+DO NOT USE PERSONAL OR EXTERNAL KNOWLEDGE BEYOND THE DATA FROM THE find_products FUNCTION.
+DO NOT CLASSIFY FOOD WITHOUT PROPER ANALYSIS OF PROVIDED DATA.
+DO NOT ASSUME MISSING DATA; ONLY BASE DECISIONS ON WHAT IS PRESENT.
+DO NOT USE VAGUE OR UNSUPPORTED STATEMENTS IN YOUR EXPLANATION.
+DO NOT DISCLOSE THE USE OF THE find_products FUNCTION IN THE OUTPUT.
+DO NOT IGNORE ANY PART OF THE NUTRITIONAL DATA OR INGREDIENTS LIST PROVIDED.
+DO NOT PROVIDE OUTPUT IN ANY FORMAT OTHER THAN JSON.
 """
 qa_prompt = ChatPromptTemplate.from_messages(
     [
@@ -129,7 +141,6 @@ qa_prompt = ChatPromptTemplate.from_messages(
         ("placeholder", "{agent_scratchpad}"),
     ]
 )
-
 
 agent = create_tool_calling_agent(llm, tools, qa_prompt)
 
@@ -156,9 +167,17 @@ def analyze_food():
         config={"configurable": {"session_id": "foo"}},
     )
 
-    # Return the response as JSON
-    return jsonify({"result": result['output']})
+    if 'output' in result:
+        pattern = re.compile(r'{(.*)}', re.DOTALL)
+        match = pattern.search(result['output'])
+        if match:
+            result = json.loads("{" + match.group(1) + "}")
+        else:
+            return jsonify({'error': 'Failed to parse result'})
+    else:
+        return jsonify({'error': 'No output received'})
 
+    return jsonify(result)
 
 if __name__ == '__main__':
     app.run(debug=True)
