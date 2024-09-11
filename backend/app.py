@@ -11,7 +11,8 @@ from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain.agents import create_tool_calling_agent
-
+from dotenv import load_dotenv
+load_dotenv()
 
 import openfoodfacts
 from flask_cors import CORS
@@ -21,10 +22,10 @@ CORS(app, resources={r"/analyze": {"origins": "https://www.amazon.in"}})
 
 
 # Set up Google API key for the LLM model
-os.environ['GOOGLE_API_KEY'] = "AIzaSyBfsbwVP6RJ25Mnduh0S-UD2WwoMNwqkLc"
+api_key =  os.getenv('GOOGLE_API_KEY')
 
 # Initialize GoogleGenerativeAI with appropriate safety settings
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-exp-0827")
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-exp-0827",api_key=api_key)
 
 # Initialize OpenFoodFacts API
 api = openfoodfacts.API(user_agent="MyAwesomeApp/1.0")
