@@ -1,0 +1,5 @@
+Flask
+pypdf
+openfoodfacts==1.1.1
+langchain
+

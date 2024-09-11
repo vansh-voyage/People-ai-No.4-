@@ -1,0 +1,13 @@
+.nutritional-popup {
+  position: absolute;
+  z-index: 1000;
+  padding: 10px;
+  border-radius: 8px;
+  background-color: white;
+  color: black;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  max-width: 200px;
+  max-height: 150px;
+  overflow-y: auto;
+  font-size: 12px;
+}
