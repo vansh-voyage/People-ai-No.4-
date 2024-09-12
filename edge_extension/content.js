@@ -19,7 +19,7 @@ async function sendToBackend(productName) {
         }
         const data = await response.json();
         console.log(data);
-        return data.result;
+        return data;
     } catch (error) {
         console.error("Error sending data to Flask:", error);
         return null;
