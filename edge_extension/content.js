@@ -26,27 +26,80 @@ async function sendToBackend(productName) {
     }
 }
 
+// Function to create a filled color ring (filled circle)
+function createColorRing(color) {
+    const ring = document.createElement('span');
+    ring.style.display = 'inline-block';
+    ring.style.width = '12px';
+    ring.style.height = '12px';
+    ring.style.backgroundColor = color; // Filled circle
+    ring.style.borderRadius = '50%';
+    ring.style.marginRight = '8px'; // Spacing between ring and text
+    return ring;
+}
+
 // Function to display the result near the product name
 function displayResult(element, result) {
     if (activePopup) {
         activePopup.remove(); // Remove any existing popup
     }
 
+    // Extract data from the result
+    const { product_name, classification_status, reasoning, conclusion, disclaimer } = result;
+
+    // Determine classification color
+    let classificationColor;
+    switch (classification_status) {
+        case 'GREEN':
+            classificationColor = '#28a745'; // Bootstrap green
+            break;
+        case 'YELLOW':
+            classificationColor = '#ffc107'; // Bootstrap yellow
+            break;
+        case 'RED':
+            classificationColor = '#dc3545'; // Bootstrap red
+            break;
+        default:
+            classificationColor = '#6c757d'; // Bootstrap gray for unknown
+    }
+
     // Create popup div
     const resultDiv = document.createElement('div');
     resultDiv.style.position = 'absolute';
-    resultDiv.style.backgroundColor = '#f9f9f9';
-    resultDiv.style.border = '1px solid #ccc';
-    resultDiv.style.padding = '10px';
-    resultDiv.style.borderRadius = '8px';
-    resultDiv.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.1)';
+    resultDiv.style.background = 'linear-gradient(135deg, #e0e0e0, #cfcfcf)'; // Darker gradient background
+    resultDiv.style.border = `2px solid ${classificationColor}`;
+    resultDiv.style.padding = '20px'; // Increased padding for readability
+    resultDiv.style.borderRadius = '12px';
+    resultDiv.style.boxShadow = '0 8px 16px rgba(0, 0, 0, 0.3)'; // Slightly darker shadow
     resultDiv.style.zIndex = '9999';
-    resultDiv.style.maxWidth = '200px';  // Set max width for a compact design
-    resultDiv.style.maxHeight = '150px'; // Restrict height to 150px
+    resultDiv.style.maxWidth = '350px';  // Increased max width for better readability
+    resultDiv.style.maxHeight = '280px'; // Increased height for better readability
     resultDiv.style.overflowY = 'auto';  // Add vertical scrolling if content exceeds
-    resultDiv.style.fontSize = '12px';   // Make the text smaller for compactness
-    resultDiv.style.lineHeight = '1.5';  // Improve readability
-    resultDiv.innerHTML = `<strong>Nutritional Info:</strong><br>${result}`;
+    resultDiv.style.fontSize = '15px';   // Adjust font size for better readability
+    resultDiv.style.lineHeight = '1.8';  // Improve readability
+    resultDiv.style.transition = 'opacity 0.3s ease-in-out'; // Smooth fade-in animation
+    resultDiv.style.opacity = '0'; // Start hidden for fade-in effect
+
+    // Create classification section with filled color ring
+    const classificationSection = document.createElement('div');
+    const colorRing = createColorRing(classificationColor); // Create the filled color ring element
+    classificationSection.appendChild(colorRing); // Add the filled color ring to the classification section
+
+    const classificationText = document.createElement('span');
+    classificationText.innerHTML = `<strong style="color: black;">Classification:</strong> <span style="color: ${classificationColor};">${classification_status}</span>`; // Classification text is now black
+    classificationSection.appendChild(classificationText);
+
+    // Populate the popup with structured data
+    resultDiv.innerHTML = `
+        <strong style="font-size: 18px; color: #333;">Product:</strong> ${product_name} <br>
+        <div id="classification-container"></div> <!-- Placeholder for classification -->
+        <strong style="color: #555;">Reasoning:</strong> <span style="color: #444;">${reasoning}</span> <br>
+        <strong style="color: #555;">Conclusion:</strong> <span style="color: #444;">${conclusion}</span> <br>
+        <small style="color: #777;"><em>${disclaimer}</em></small>
+    `;
+
+    // Insert classification section at the placeholder
+    resultDiv.querySelector('#classification-container').appendChild(classificationSection);
 
     document.body.appendChild(resultDiv);
 
@@ -56,7 +109,6 @@ function displayResult(element, result) {
     const popupHeight = resultDiv.offsetHeight;
     const offset = 10; // Distance from the element
 
-    // Adjust position to ensure the popup doesn't overflow the screen
     let top = rect.top + window.scrollY - popupHeight - offset;
     let left = rect.left + window.scrollX + (rect.width - popupWidth) / 2;
 
@@ -68,6 +120,7 @@ function displayResult(element, result) {
     requestAnimationFrame(() => {
         resultDiv.style.top = `${top}px`;
         resultDiv.style.left = `${left}px`;
+        resultDiv.style.opacity = '1'; // Trigger the fade-in effect
     });
 
     activePopup = resultDiv; // Set the active popup to be removed later
