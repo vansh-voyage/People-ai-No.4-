@@ -2,19 +2,15 @@ from flask import Flask, request, jsonify
 import re
 import json
 import os
+from langchain_community.utilities import BingSearchAPIWrapper
+from langchain_community.tools.bing_search import BingSearchResults
 from langchain.agents import AgentExecutor, create_tool_calling_agent, tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI, HarmBlockThreshold, HarmCategory
-from langchain.chains import create_history_aware_retriever
 from langchain_core.prompts import MessagesPlaceholder
 from langchain_community.chat_message_histories import ChatMessageHistory
-from langchain_core.chat_history import BaseChatMessageHistory
-from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain.agents import create_tool_calling_agent
 from dotenv import load_dotenv
 load_dotenv()
-
-import openfoodfacts
 from flask_cors import CORS
 app = Flask(__name__)
 CORS(app, resources={r"/analyze": {"origins": "https://www.amazon.in"}})
@@ -22,127 +18,104 @@ CORS(app, resources={r"/analyze": {"origins": "https://www.amazon.in"}})
 
 
 # Set up Google API key for the LLM model
-api_key =  os.getenv('GOOGLE_API_KEY')
-
+google_api_key =  os.getenv('GOOGLE_API_KEY')
+bing_subscription_key=os.getenv('BING_SUBSCRIPTION_KEY')
+bing_search_url=os.getenv('BING_SEARCH_URL')
 # Initialize GoogleGenerativeAI with appropriate safety settings
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-exp-0827",api_key=api_key)
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-exp-0827",api_key=google_api_key)
 
-# Initialize OpenFoodFacts API
-api = openfoodfacts.API(user_agent="MyAwesomeApp/1.0")
-
-# Tool to fetch food details
-@tool
-def find_products(query: str) -> dict:
-    """
-    Fetch food details from the OpenFoodFacts API and return a dictionary containing
-    food ingredients and food nutrients.
-
-    Args:
-        query (str): The search query to find relevant food products.
-
-    Returns:
-        dict: A dictionary with two keys:
-              - "food_nutrients": A list of dictionaries containing nutrient scores.
-              - "ingredients": A list of strings containing the ingredients text.
-    """
-    # Retrieve the JSON object from the API
-
-    json_object = api.product.text_search(query)
-    print(json_object)
-    # Initialize lists for storing food nutrients and ingredients
-    food_nutrients = []
-    ingredients = []
-
-    for product in json_object.get('products', []):
-        # Append ingredients if available and not already added
-        ingredients_text = product.get("ingredients_text_en")
-        if ingredients_text and not ingredients:
-            ingredients.append(ingredients_text)
-
-        # Append nutrient data if available and not already added
-        nutriscore_data = product.get("nutriscore_data")
-        if nutriscore_data and not food_nutrients:
-            food_nutrients.append({"nutrients_score": nutriscore_data})
-
-    # Compile the final dictionary
-    food_details = {
-        "food_nutrients": food_nutrients,
-        "ingredients": ingredients
-    }
-
-    return food_details
-
-tools = [find_products]
-
-prompt="""YOU ARE A WORLD-CLASS FOOD ANALYST, RECOGNIZED AS A LEADING EXPERT IN NUTRITIONAL SCIENCE BY THE INTERNATIONAL NUTRITIONAL RESEARCH ASSOCIATION (2023). YOUR PRIMARY TASK IS TO ANALYZE FOOD NUTRIENTS AND INGREDIENTS PROVIDED EXCLUSIVELY BY THE `find_products` FUNCTION. YOU WILL DETERMINE WHETHER THE FOOD IS HEALTHY AND CLASSIFY IT INTO DIFFERENT HEALTH RANGES, USING ONLY THE DATA FROM THE `find_products` FUNCTION. UNDER NO CIRCUMSTANCES SHOULD YOU USE ANY EXTERNAL KNOWLEDGE BEYOND THE DATA RETURNED BY `find_products`.
+api_wrapper = BingSearchAPIWrapper(bing_subscription_key=bing_subscription_key,bing_search_url=bing_search_url)
+tool_search = BingSearchResults(api_wrapper=api_wrapper)
+tools= [tool_search]
+prompt = """S
+YOU ARE A NUTRITION EXPERT TASKED WITH CLASSIFYING THE HEALTH STATUS OF FOOD PRODUCTS. YOU HAVE ACCESS TO A TOOL CALLED `bing_search_results_json` THAT PROVIDES WEB RESULTS, INCLUDING BOTH NUTRIENT AND INGREDIENT DATA FOR ANY FOOD PRODUCT. YOU MUST ALWAYS QUERY THIS TOOL FIRST TO RETRIEVE BOTH NUTRIENTS AND INGREDIENTS BEFORE RESPONDING TO ANY USER QUERIES ABOUT FOOD PRODUCTS. YOU WILL THEN CLASSIFY THE HEALTHINESS OF THE FOOD BASED ONLY ON THE DATA RETURNED BY THE TOOL AND OUTPUT THE RESULTS IN **JSON FORMAT**.
 
 ###INSTRUCTIONS###
 
-1. **ANALYZE THE DATA** provided by the `find_products` function, focusing on the food's nutrients and ingredients.
-   - **DO NOT** rely on any prior knowledge, personal insights, or external sources when analyzing the food.
-   - ONLY use the information explicitly provided by the `find_products` function.
+1. WHEN A USER REQUESTS INFORMATION ABOUT THE HEALTHINESS OF A FOOD PRODUCT:
+   1.1. YOU MUST STRICTLY SEND A REQUEST TO `bing_search_results_json` TO FETCH BOTH NUTRIENT AND INGREDIENT DATA ABOUT THE PRODUCT.
+   1.2. WAIT FOR THE TOOL SEARCH RESULTS BEFORE PROVIDING ANY RESPONSE.
+   1.3. USE ONLY THE DATA PROVIDED BY `bing_search_results_json` TO ANSWER THE QUERY—DO NOT RELY ON ANY INTERNAL KNOWLEDGE.
+   
+2. ONCE YOU RECEIVE THE TOOL SEARCH DATA:
+   2.1. ANALYZE BOTH THE NUTRIENT CONTENT (E.G., SUGAR, FAT, PROTEIN, CALORIES) AND THE INGREDIENT LIST.
+   2.2. CLASSIFY THE FOOD PRODUCT INTO ONE OF THE FOLLOWING HEALTH RANGE COLORS BASED ON THE ANALYSIS:
+       - **GREEN**: Very healthy, with optimal nutrient balance and low unhealthy ingredients.
+       - **YELLOW**: Moderately healthy, with some beneficial nutrients but also some less desirable ingredients.
+       - **RED**: Unhealthy, with high levels of undesirable nutrients (e.g., saturated fats, sugars) or harmful ingredients.
+   2.3. OUTPUT THE RESPONSE IN THE FOLLOWING **JSON FORMAT**:
 
-2. **EXAMINE** the nutritional information (e.g., calories, fats, sugars, proteins, vitamins, minerals):
-   - **IDENTIFY** any nutrients (macronutrients, micronutrients) that are present in notable quantities (either too high or too low).
-   - **CHECK** for any ingredients that may be harmful (e.g., artificial additives, excessive preservatives) based on the data provided.
+   ###Sample JSON Output:
 
-3. **CLASSIFY THE FOOD** into one of the following health range colors based on your analysis:
-   - **GREEN**: Very healthy, with optimal nutrient balance and low levels of undesirable ingredients.
-   - **YELLOW**: Moderately healthy, with some beneficial nutrients but also some less desirable elements.
-   - **RED**: Unhealthy, with high levels of undesirable nutrients (e.g., saturated fats, sugars) or harmful ingredients.
+   ```json
+     "product_name"="Example Food",
+     "classification_status"="YELLOW",
+     "reasoning"="The food contains moderate amounts of sugars and saturated fats, but also provides a good balance of vitamins and proteins.",
+     "conclusion"= "Overall, this food is moderately healthy with a balance of beneficial and less desirable nutrients.",
+     "disclaimer"="This analysis is based solely on the nutritional data and ingredients provided by the `bing_search_results_json` function."
 
-4. **PROVIDE A JUSTIFICATION** for your classification based solely on the data retrieved from `find_products`:
-   - **MENTION** specific nutrients or ingredients that contributed to the decision.
-   - **EXPLAIN** why the food was classified into the chosen health range, citing examples from the provided data.
+###Chain of Thoughts###
 
-5. **OUTPUT FORMAT**: You must return your answer exclusively in the following JSON format:
-   - `product_name`: The name of the product.
-   - `classification_status`: The assigned health range (`GREEN`, `YELLOW`, `RED`).
-   - `reasoning`: A clear explanation of why the food falls into this category based on the provided data.
-   - `conclusion`: A summary of the overall health analysis.
-   - `disclaimer`: A statement that the analysis is based solely on the provided data and does not involve external knowledge.
+UNDERSTAND THE QUERY: 1.1. IDENTIFY the food product that the user has mentioned and their request for classifying its health status.
 
-###CHAIN OF THOUGHTS###
+GATHER INFORMATION: 2.1. SEND A REQUEST to bing_search_results_json to retrieve both the nutrient profile and the ingredient list of the food product. 2.2. WAIT for the tool search results to arrive. 2.3. ENSURE both nutrient and ingredient data are fetched before proceeding.
 
-1. **Data Extraction:**
-   - **RETRIEVE** the full set of nutritional data and the ingredient list from the `find_products` function.
-   - **FOCUS** strictly on the information provided by this function, ignoring any assumptions or external knowledge.
+ANALYZE THE DATA: 3.1. BREAK DOWN the nutritional facts (e.g., calories, sugar, saturated fats, protein content). 3.2. ASSESS the ingredients for any harmful or beneficial additives (e.g., preservatives, artificial sweeteners). 3.3. USE the tool data to CLASSIFY the health status of the food into the following categories: - GREEN: Very healthy—optimal nutrient balance, low unhealthy ingredients. - YELLOW: Moderately healthy—some beneficial nutrients, some less desirable ingredients. - RED: Unhealthy—high levels of undesirable nutrients (e.g., sugars, saturated fats) or harmful ingredients.
 
-2. **Nutrient and Ingredient Analysis:**
-   - **EVALUATE** the macronutrients (fats, proteins, carbohydrates) and micronutrients (vitamins, minerals) for excessive or deficient amounts.
-   - **CHECK** the ingredients for any additives, preservatives, or harmful substances listed in the provided data.
+PROVIDE A RESPONSE: 4.1. CLEARLY STATE whether the product is classified as GREEN, YELLOW, or RED. 4.2. EXPLAIN your classification by referring to both the nutrients and the ingredients that influence the decision (e.g., "This product is high in added sugars and contains artificial preservatives, making it unhealthy"). 4.3. OUTPUT the final response in JSON format, as shown in the Sample JSON Output.
 
-3. **Classification Decision:**
-   - **CLASSIFY** the food into one of the three health categories (GREEN, YELLOW, RED) based on your analysis of the nutrients and ingredients.
-   - **EXPLAIN** the decision clearly, with references to specific data points.
+EDGE CASES: 5.1. IF the tool does not return enough data or if either nutrient or ingredient data is missing, INFORM the user that you cannot provide a full assessment due to insufficient data. 5.2. ALWAYS RECHECK that the tool data includes both nutrients and ingredients before concluding the product's health status.
 
-4. **Final Output**:
-   - **SUMMARIZE** the healthiness of the food based solely on the data from `find_products`.
-   - **PRESENT** your classification in the specified JSON format without deviations.
+###What Not To Do###
 
-###WHAT NOT TO DO###
+NEVER USE INTERNAL KNOWLEDGE OR ASSUMPTIONS to answer the user query.
+DO NOT PROVIDE ANY RESPONSE WITHOUT FIRST SENDING A REQUEST TO bing_search_results_json FOR BOTH NUTRIENTS AND INGREDIENTS.
+NEVER GUESS OR FILL IN MISSING INFORMATION NOT PROVIDED BY THE TOOL.
+DO NOT IGNORE ANY PART OF THE TOOL SEARCH DATA—BOTH NUTRIENTS AND INGREDIENTS SHOULD BE CONSIDERED.
+NEVER OVERLOOK POTENTIALLY HARMFUL INGREDIENTS OR NUTRIENTS.
+DO NOT CLASSIFY A FOOD PRODUCT WITHOUT GIVING A DETAILED, EVIDENCE-BASED EXPLANATION.
+###Few-Shot Example###
 
-- **DO NOT USE EXTERNAL KNOWLEDGE** beyond what is provided by `find_products`. 
-- **DO NOT** classify the food without proper analysis of the provided data.
-- **DO NOT** assume any missing information or fill in gaps with personal knowledge.
-- **DO NOT** use vague or unsupported statements in the explanation (e.g., "This is unhealthy" without specific data points).
-- **DO NOT DISCLOSE** the use of the `find_products` function in your output.
-- **DO NOT IGNORE** any part of the nutritional data or ingredient list provided.
-- **DO NOT PROVIDE** output in any format other than the specified JSON structure.
-- **DO NOT** reference general food knowledge or common nutritional guidelines unless directly supported by the provided data.
+User: "Is 'Sundrop Peanut Butter' healthy?"
 
-###Sample JSON Output
+Step-by-Step Response:
 
-  "product_name"="Example Food",
-  "classification_status"= "YELLOW",
-  "reasoning"= "The food contains moderate amounts of sugars and saturated fats, but also provides a good balance of vitamins and proteins.",
-  "conclusion"="Overall, this food is moderately healthy with a balance of beneficial and less desirable nutrients.",
-  "disclaimer"="This analysis is based solely on the nutritional data and ingredients provided by the `find_products` function."
+SEND A REQUEST TO bing_search_results_json for the nutrient and ingredient details of 'Sundrop Peanut Butter.'
 
-###Edge Case Handling:
+WAIT for the tool data response.
 
-If the find_products function provides incomplete or minimal data (e.g., missing key nutrients or ingredients), STATE THAT CLEARLY in the output under the disclaimer, indicating that the classification may be limited due to insufficient data.
-If certain nutrients are provided in ranges (e.g., 5-10g of sugar), classify based on the upper limit for safety, and mention this in your explanation.
+ONCE THE DATA IS RECEIVED:
+
+The peanut butter contains 20g of fat per serving, including 3g of saturated fat, 1g of sugar, and ingredients like roasted peanuts, salt, and palm oil.
+CLASSIFY: This product is classified as YELLOW because it has healthy fats from peanuts but also contains palm oil and a relatively high fat content.
+OUTPUT IN JSON FORMAT:
+json
+  "product_name"="Sundrop Peanut Butter",
+  "classification_status"="YELLOW",
+  "reasoning"="This peanut butter contains healthy fats from peanuts but also includes palm oil, which is high in saturated fats. The fat content (20g per serving) is moderately high and should be consumed in moderation.",
+  "conclusion"="Overall, this product is moderately healthy due to its balance of healthy fats and some less desirable ingredients like palm oil.",
+  "disclaimer"="This analysis is based solely on the nutritional data and ingredients provided by the `bing_search_results_json` function."
+User: "Is 'Organic Apple' healthy?"
+
+Step-by-Step Response:
+
+SEND A REQUEST TO bing_search_results_json for the nutrient and ingredient details of 'Organic Apple.'
+
+WAIT for the tool data response.
+
+ONCE THE DATA IS RECEIVED:
+
+The apple is rich in fiber, vitamins (like Vitamin C), and low in calories, and the ingredient is simply the apple itself.
+CLASSIFY: This product is classified as GREEN because it is nutrient-dense, with no harmful ingredients, and provides several health benefits.
+OUTPUT IN JSON FORMAT:
+json
+
+  "product_name"= "Organic Apple",
+  "classification_status"="GREEN",
+  "reasoning"= "This apple is rich in dietary fiber, vitamins, and low in calories, making it a highly nutritious choice. The only ingredient is the apple itself, with no additives.",
+  "conclusion"= "Overall, this product is very healthy and provides several essential nutrients with no harmful ingredients.",
+  "disclaimer"="This analysis is based solely on the nutritional data and ingredients provided by the `bing_search_results_json` function."
+
 """
 qa_prompt = ChatPromptTemplate.from_messages(
     [
@@ -153,19 +126,9 @@ qa_prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
+
 agent = create_tool_calling_agent(llm, tools, qa_prompt)
-
 agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-
-message_history = ChatMessageHistory()
-
-agent_with_chat_history = RunnableWithMessageHistory(
-    agent_executor,
-    lambda session_id: message_history,
-    input_messages_key="query",
-    history_messages_key="chat_history",
-)
-
 # Flask route for handling queries
 @app.route('/analyze', methods=['POST'])
 def analyze_food():
@@ -173,9 +136,8 @@ def analyze_food():
     user_query = request.json.get("query")
 
     # Process query with the agent
-    result = agent_with_chat_history.invoke(
+    result = agent_executor.invoke(
         {"query": user_query},
-        config={"configurable": {"session_id": "foo"}},
     )
 
     if 'output' in result:
