@@ -19,10 +19,24 @@ async function sendToBackend(productName) {
         }
         const data = await response.json();
         console.log(data);
-        return data;
+        return data;  // Return full JSON response
     } catch (error) {
         console.error("Error sending data to Flask:", error);
         return null;
+    }
+}
+
+// Function to get the color based on the classification status
+function getStatusColor(status) {
+    switch (status) {
+        case 'GREEN':
+            return '#28a745'; // Green for healthy
+        case 'YELLOW':
+            return '#ffc107'; // Yellow for moderate
+        case 'RED':
+            return '#dc3545'; // Red for unhealthy
+        default:
+            return '#6c757d'; // Gray for unknown statuses
     }
 }
 
@@ -32,22 +46,51 @@ function displayResult(element, result) {
         activePopup.remove(); // Remove any existing popup
     }
 
-    // Create popup div
+    const { product_name, classification_status, conclusion, reasoning, disclaimer } = result;
+
+    // Create popup div with advanced styling
     const resultDiv = document.createElement('div');
     resultDiv.style.position = 'absolute';
-    resultDiv.style.backgroundColor = '#f9f9f9';
-    resultDiv.style.border = '1px solid #ccc';
-    resultDiv.style.padding = '10px';
-    resultDiv.style.borderRadius = '8px';
-    resultDiv.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.1)';
+    resultDiv.style.backgroundColor = '#ffffff';  // Clean white background
+    resultDiv.style.border = '1px solid #ddd';    // Soft border for definition
+    resultDiv.style.padding = '20px';
+    resultDiv.style.borderRadius = '15px';        // Rounded corners for modern look
+    resultDiv.style.boxShadow = '0 10px 30px rgba(0, 0, 0, 0.1)'; // Enhanced shadow for depth
     resultDiv.style.zIndex = '9999';
-    resultDiv.style.maxWidth = '200px';  // Set max width for a compact design
-    resultDiv.style.maxHeight = '150px'; // Restrict height to 150px
-    resultDiv.style.overflowY = 'auto';  // Add vertical scrolling if content exceeds
-    resultDiv.style.fontSize = '12px';   // Make the text smaller for compactness
-    resultDiv.style.lineHeight = '1.5';  // Improve readability
-    resultDiv.innerHTML = `<strong>Nutritional Info:</strong><br>${result}`;
+    resultDiv.style.maxWidth = '380px';  // Increased width for better content fit
+    resultDiv.style.maxHeight = '350px'; // More room for content
+    resultDiv.style.overflowY = 'auto';  // Scrollable if content exceeds height
+    resultDiv.style.fontFamily = 'Roboto, Arial, sans-serif';  // Modern font for clean look
+    resultDiv.style.transition = 'opacity 0.3s ease, transform 0.3s ease';  // Smooth transitions
+    resultDiv.style.opacity = '0';  // Start with 0 opacity for fade-in effect
+    resultDiv.style.transform = 'translateY(10px)';  // Start with slight offset for animation
 
+    // Create a background gradient for a more professional, eye-catching look
+    resultDiv.style.background = 'linear-gradient(135deg, #f9f9f9 0%, #ffffff 100%)';
+
+    // Apply classy typography and spacing with enhanced headings and layout
+    const popupContent = `
+        <div style="margin-bottom: 15px; font-size: 16px; font-weight: 700; color: #333;">${product_name}</div>
+        <div style="margin-bottom: 15px; display: flex; align-items: center;">
+            <span style="font-size: 14px; color: #555;">Classification Status:</span>
+            <span style="font-size: 14px; margin-left: 8px; padding: 5px 12px; border-radius: 8px; background-color: ${getStatusColor(classification_status)}; color: white; font-weight: bold;">
+                ${classification_status}
+            </span>
+        </div>
+        <div style="margin-bottom: 15px;">
+            <strong style="font-size: 14px; color: #444;">Conclusion:</strong> 
+            <p style="font-size: 14px; color: #222; margin-top: 5px; line-height: 1.6;">${conclusion}</p>
+        </div>
+        <div style="margin-bottom: 15px;">
+            <strong style="font-size: 14px; color: #444;">Reasoning:</strong>
+            <p style="font-size: 14px; color: #222; margin-top: 5px; line-height: 1.6;">${reasoning}</p>
+        </div>
+        <div style="font-size: 12px; color: #999; margin-top: 15px; border-top: 1px solid #ddd; padding-top: 10px;">
+            <em>${disclaimer}</em>
+        </div>
+    `;
+
+    resultDiv.innerHTML = popupContent;
     document.body.appendChild(resultDiv);
 
     // Position the popup near the product
@@ -56,7 +99,6 @@ function displayResult(element, result) {
     const popupHeight = resultDiv.offsetHeight;
     const offset = 10; // Distance from the element
 
-    // Adjust position to ensure the popup doesn't overflow the screen
     let top = rect.top + window.scrollY - popupHeight - offset;
     let left = rect.left + window.scrollX + (rect.width - popupWidth) / 2;
 
@@ -68,6 +110,8 @@ function displayResult(element, result) {
     requestAnimationFrame(() => {
         resultDiv.style.top = `${top}px`;
         resultDiv.style.left = `${left}px`;
+        resultDiv.style.opacity = '1';  // Fade in
+        resultDiv.style.transform = 'translateY(0)';  // Slide in effect
     });
 
     activePopup = resultDiv; // Set the active popup to be removed later
@@ -118,8 +162,12 @@ document.addEventListener('mouseover', (event) => {
 document.addEventListener('mouseleave', (event) => {
     const targetElement = event.target.closest('.a-box-group, .s-result-item');
     if (targetElement && activePopup) {
-        activePopup.remove();
-        activePopup = null; // Clear the active popup reference
+        activePopup.style.opacity = '0';  // Fade-out effect
+        activePopup.style.transform = 'translateY(10px)';  // Slide out effect
+        setTimeout(() => {
+            if (activePopup) activePopup.remove();  // Remove after animation completes
+            activePopup = null; // Clear the active popup reference
+        }, 300);
         if (hoverTimeout) {
             clearTimeout(hoverTimeout);
             hoverTimeout = null;
