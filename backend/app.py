@@ -18,7 +18,7 @@ CORS(app, resources={r"/analyze": {"origins": "https://www.amazon.in"}})
 
 
 # Set up Google API key for the LLM model
-google_api_key =  os.getenv('GOOGLE_API_KEY')
+google_api_key =  os.getenv('GOOGLE_API_KEY2')
 bing_subscription_key=os.getenv('BING_SUBSCRIPTION_KEY')
 bing_search_url=os.getenv('BING_SEARCH_URL')
 # Initialize GoogleGenerativeAI with appropriate safety settings
@@ -27,7 +27,7 @@ llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-exp-0827",api_key=google_api_
 api_wrapper = BingSearchAPIWrapper(bing_subscription_key=bing_subscription_key,bing_search_url=bing_search_url)
 tool_search = BingSearchResults(api_wrapper=api_wrapper)
 tools= [tool_search]
-prompt = """S
+prompt = """
 YOU ARE A NUTRITION EXPERT TASKED WITH CLASSIFYING THE HEALTH STATUS OF FOOD PRODUCTS. YOU HAVE ACCESS TO A TOOL CALLED `bing_search_results_json` THAT PROVIDES WEB RESULTS, INCLUDING BOTH NUTRIENT AND INGREDIENT DATA FOR ANY FOOD PRODUCT. YOU MUST ALWAYS QUERY THIS TOOL FIRST TO RETRIEVE BOTH NUTRIENTS AND INGREDIENTS BEFORE RESPONDING TO ANY USER QUERIES ABOUT FOOD PRODUCTS. YOU WILL THEN CLASSIFY THE HEALTHINESS OF THE FOOD BASED ONLY ON THE DATA RETURNED BY THE TOOL AND OUTPUT THE RESULTS IN **JSON FORMAT**.
 
 ###INSTRUCTIONS###
